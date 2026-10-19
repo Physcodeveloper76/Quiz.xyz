@@ -131,7 +131,30 @@ This tests:
   ADMIN_USERNAME=organizer
   ADMIN_PASSWORD=your-secure-admin-pass
   MONGODB_URI=mongodb+srv://...
+  # Supabase Integration (Live Leaderboard & Marks Editor)
+  SUPABASE_URL=https://your-project.supabase.co
+  SUPABASE_KEY=your-supabase-service-role-or-anon-key
   ```
+
+### Supabase Table Setup (1-Click SQL)
+Run [`supabase_leaderboard.sql`](./supabase_leaderboard.sql) in your Supabase SQL Editor:
+```sql
+CREATE TABLE IF NOT EXISTS public.leaderboard (
+    quiz_id TEXT NOT NULL DEFAULT 'default_quiz',
+    team_id TEXT NOT NULL,
+    team_name TEXT NOT NULL,
+    marks NUMERIC NOT NULL DEFAULT 0,
+    total_score NUMERIC NOT NULL DEFAULT 0,
+    correct_count INT NOT NULL DEFAULT 0,
+    total_time_ms NUMERIC NOT NULL DEFAULT 0,
+    rank INT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (quiz_id, team_id)
+);
+```
+- **Live Sync**: Whenever a question is scored, marks and ranks are auto-upserted to Supabase.
+- **Manual Marks Edits**: You can edit marks/scores directly in Supabase's Table Editor. Click **"Pull from Supabase"** in the Admin Control Room (or call the sync endpoint) to immediately apply and broadcast changes to all live participant screens!
+
 
 ### Frontend (Vercel)
 

@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { Trophy, Medal, Award, Clock, Check, Users } from 'lucide-react';
+import { Trophy, Medal, Award, Clock, Check, Users, Edit3 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sounds } from '../services/AudioCues';
 
-export default function Leaderboard({ leaderboard = [], currentTeamId, isFinal = false }) {
+export default function Leaderboard({ leaderboard = [], currentTeamId, isFinal = false, onEditMarks }) {
+
   useEffect(() => {
     if (isFinal && leaderboard.length > 0) {
       sounds.playFanfare();
@@ -119,7 +120,7 @@ export default function Leaderboard({ leaderboard = [], currentTeamId, isFinal =
                   fontSize: isFirst ? '1.35rem' : '1.15rem',
                   color: isFirst ? '#FBBF24' : '#E2E8F0'
                 }}>
-                  {team.total_score} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>pts</span>
+                  {team.marks !== undefined ? team.marks : team.total_score} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>marks</span>
                 </div>
               </div>
             );
@@ -136,12 +137,14 @@ export default function Leaderboard({ leaderboard = [], currentTeamId, isFinal =
               <th style={{ padding: '12px 16px' }}>Team</th>
               <th style={{ padding: '12px 16px', textAlign: 'center' }}>Accuracy</th>
               <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total Time</th>
-              <th style={{ padding: '12px 16px', textAlign: 'right' }}>Score</th>
+              <th style={{ padding: '12px 16px', textAlign: 'right' }}>Marks / Score</th>
+              {onEditMarks && <th style={{ padding: '12px 16px', textAlign: 'center' }}>Action</th>}
             </tr>
           </thead>
           <tbody>
             {leaderboard.map((team, idx) => {
               const isMe = currentTeamId === team.team_id;
+              const displayMarks = team.marks !== undefined ? team.marks : team.total_score;
               return (
                 <tr
                   key={team.team_id}
@@ -186,8 +189,21 @@ export default function Leaderboard({ leaderboard = [], currentTeamId, isFinal =
                     {((team.total_time_ms || 0) / 1000).toFixed(2)}s
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1.1rem', color: '#F1F5F9' }}>
-                    {team.total_score}
+                    {displayMarks}
                   </td>
+                  {onEditMarks && (
+                    <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                      <button
+                        onClick={() => onEditMarks(team)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        title="Edit marks in Supabase & Live"
+                      >
+                        <Edit3 size={12} />
+                        <span>Edit</span>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -197,3 +213,4 @@ export default function Leaderboard({ leaderboard = [], currentTeamId, isFinal =
     </div>
   );
 }
+

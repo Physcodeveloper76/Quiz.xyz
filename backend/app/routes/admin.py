@@ -7,6 +7,7 @@ from app.database import db
 from app.services.session_manager import session_manager, hash_password
 from app.services.quiz_engine import quiz_engine
 from app.services.leaderboard import leaderboard_service
+from app.services.supabase_service import supabase_service
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -227,3 +228,65 @@ def export_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment;filename=quiz_results_export.csv"}
     )
+
+# --- SUPABASE LEADERBOARD INTEGRATION ---
+
+@admin_bp.route("/api/admin/supabase/status", methods=["GET"])
+def supabase_status():
+    status = supabase_service.get_status()
+    return jsonify(status)
+
+@admin_bp.route("/api/admin/supabase/push", methods=["POST"])
+def supabase_push():
+    leaderboard = leaderboard_service.get_leaderboard(quiz_engine.default_quiz_id, sync_to_supabase=False)
+    success = supabase_service.sync_leaderboard_to_supabase(leaderboard, quiz_engine.default_quiz_id)
+    if success:
+        return jsonify({"success": True, "message": f"Successfully pushed {len(leaderboard)} team records to Supabase.", "leaderboard": leaderboard})
+    return jsonify({"success": False, "error": "Failed to push to Supabase. Please verify SUPABASE_URL, SUPABASE_KEY, and table creation."}), 400
+
+@admin_bp.route("/api/admin/supabase/pull", methods=["POST"])
+def supabase_pull():
+    leaderboard, err = leaderboard_service.pull_and_sync_from_supabase(quiz_engine.default_quiz_id)
+    if err:
+        return jsonify({"success": False, "error": err}), 400
+
+    # Broadcast updated leaderboard to all connected participants & admin screens
+    if quiz_engine.socketio:
+        quiz_engine.socketio.emit("leaderboard_update", {"leaderboard": leaderboard})
+
+    return jsonify({
+        "success": True,
+        "message": f"Successfully pulled {len(leaderboard)} records from Supabase and broadcasted updates.",
+        "leaderboard": leaderboard
+    })
+
+@admin_bp.route("/api/admin/supabase/team/<team_id>/marks", methods=["PUT"])
+def supabase_update_team_marks(team_id):
+    data = request.get_json() or {}
+    marks = data.get("marks")
+    if marks is None:
+        return jsonify({"error": "Marks value is required."}), 400
+
+    try:
+        marks = float(marks)
+    except ValueError:
+        return jsonify({"error": "Marks must be a valid number."}), 400
+
+    # Update in Supabase if configured
+    if supabase_service.is_configured():
+        supabase_service.update_team_marks_in_supabase(team_id, marks, quiz_engine.default_quiz_id)
+
+    # Update local DB
+    db.results.update_one(
+        {"quiz_id": quiz_engine.default_quiz_id, "team_id": team_id},
+        {"$set": {"total_score": marks, "marks": marks, "finalized_at": time.time()}},
+        upsert=True
+    )
+
+    # Recalculate leaderboard ranks and broadcast
+    leaderboard = leaderboard_service.get_leaderboard(quiz_engine.default_quiz_id)
+    if quiz_engine.socketio:
+        quiz_engine.socketio.emit("leaderboard_update", {"leaderboard": leaderboard})
+
+    return jsonify({"success": True, "team_id": team_id, "marks": marks, "leaderboard": leaderboard})
+

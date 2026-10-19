@@ -100,4 +100,14 @@ export const api = {
   revealQuiz: () => request('/admin/quiz/reveal', { method: 'POST' }),
   resetQuiz: () => request('/admin/quiz/reset', { method: 'POST' }),
   exportCSVUrl: () => `${API_BASE}/admin/export`,
+
+  // Supabase Leaderboard Integration
+  getSupabaseStatus: () => request('/admin/supabase/status'),
+  pushSupabase: () => request('/admin/supabase/push', { method: 'POST' }),
+  pullSupabase: () => request('/admin/supabase/pull', { method: 'POST' }),
+  updateTeamMarks: (teamId, marks) => request(`/admin/supabase/team/${teamId}/marks`, {
+    method: 'PUT',
+    body: JSON.stringify({ marks })
+  }),
 };
+

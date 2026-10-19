@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Play, FastForward, Pause, PlayCircle, Eye, RotateCcw,
   Users, HelpCircle, Trophy, Download, Plus, Trash2, Key,
-  CheckCircle, AlertCircle, Radio, Clock, ShieldCheck, Sparkles, RefreshCw
+  CheckCircle, AlertCircle, Radio, Clock, ShieldCheck, Sparkles, RefreshCw,
+  Database, UploadCloud, DownloadCloud, Edit3, Copy, ExternalLink
 } from 'lucide-react';
 import { api } from '../services/api';
 import TimerBar from '../components/TimerBar';
@@ -16,6 +17,13 @@ export default function AdminDashboard({ quizState, onStateUpdate }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState('');
+
+  // Supabase Leaderboard State
+  const [supabaseStatus, setSupabaseStatus] = useState(null);
+  const [supabaseLoading, setSupabaseLoading] = useState(false);
+  const [showMarksModal, setShowMarksModal] = useState(false);
+  const [editTeam, setEditTeam] = useState(null);
+  const [editMarksVal, setEditMarksVal] = useState(0);
 
   // Modals & Forms
   const [showAddTeamModal, setShowAddTeamModal] = useState(false);
@@ -43,17 +51,76 @@ export default function AdminDashboard({ quizState, onStateUpdate }) {
 
   const loadData = async () => {
     try {
-      const [tData, qData, rData] = await Promise.all([
+      const [tData, qData, rData, sData] = await Promise.all([
         api.getTeams(),
         api.getQuestions(),
-        api.getQuizResults()
+        api.getQuizResults(),
+        api.getSupabaseStatus().catch(() => null)
       ]);
       setTeams(tData || []);
       setQuestions(qData || []);
       setLeaderboard(rData.leaderboard || []);
+      if (sData) setSupabaseStatus(sData);
     } catch (err) {
       console.error('Failed to load admin data:', err);
     }
+  };
+
+  const handlePushSupabase = async () => {
+    try {
+      setSupabaseLoading(true);
+      const res = await api.pushSupabase();
+      showNotice(res.message || 'Synced leaderboard to Supabase successfully!');
+      loadData();
+    } catch (err) {
+      showNotice(err.message || 'Failed to push to Supabase.');
+    } finally {
+      setSupabaseLoading(false);
+    }
+  };
+
+  const handlePullSupabase = async () => {
+    try {
+      setSupabaseLoading(true);
+      const res = await api.pullSupabase();
+      if (res.leaderboard) {
+        setLeaderboard(res.leaderboard);
+      }
+      showNotice(res.message || 'Successfully applied modified marks & leaderboard from Supabase!');
+      loadData();
+    } catch (err) {
+      showNotice(err.message || 'Failed to pull from Supabase.');
+    } finally {
+      setSupabaseLoading(false);
+    }
+  };
+
+  const handleOpenEditMarks = (team) => {
+    setEditTeam(team);
+    setEditMarksVal(team.marks !== undefined ? team.marks : team.total_score);
+    setShowMarksModal(true);
+  };
+
+  const handleSaveMarks = async (e) => {
+    e.preventDefault();
+    if (!editTeam) return;
+    try {
+      const res = await api.updateTeamMarks(editTeam.team_id, editMarksVal);
+      if (res.leaderboard) {
+        setLeaderboard(res.leaderboard);
+      }
+      showNotice(`Marks updated for ${editTeam.team_name} (${editTeam.team_id}) to ${editMarksVal}!`);
+      setShowMarksModal(false);
+      loadData();
+    } catch (err) {
+      showNotice(err.message || 'Failed to update marks.');
+    }
+  };
+
+  const handleCopySql = () => {
+    const sql = supabaseStatus?.schema_sql || `-- Supabase Leaderboard Table\nCREATE TABLE public.leaderboard (\n  quiz_id TEXT NOT NULL DEFAULT 'default_quiz',\n  team_id TEXT NOT NULL,\n  team_name TEXT NOT NULL,\n  marks NUMERIC NOT NULL DEFAULT 0,\n  total_score NUMERIC NOT NULL DEFAULT 0,\n  correct_count INT NOT NULL DEFAULT 0,\n  total_time_ms NUMERIC NOT NULL DEFAULT 0,\n  rank INT NOT NULL DEFAULT 1,\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n  PRIMARY KEY (quiz_id, team_id)\n);`;
+    navigator.clipboard.writeText(sql);
+    showNotice('Copied Supabase SQL table creation script to clipboard!');
   };
 
   useEffect(() => {
@@ -633,21 +700,89 @@ export default function AdminDashboard({ quizState, onStateUpdate }) {
       {/* TAB 4: RESULTS & EXPORT */}
       {activeTab === 'results' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
-            <a
-              href={api.exportCSVUrl()}
-              download="quiz_results_export.csv"
-              className="btn btn-success"
-              style={{ padding: '12px 20px', textDecoration: 'none' }}
-            >
-              <Download size={18} />
-              <span>Download Official CSV Results</span>
-            </a>
+          {/* Supabase Leaderboard Sync Banner */}
+          <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', border: '1px solid rgba(16, 185, 129, 0.25)', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(6, 182, 212, 0.05) 100%)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
+                  <Database size={24} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h4 style={{ fontWeight: 800, fontSize: '1.1rem', margin: 0 }}>Supabase Leaderboard & Marks Editor</h4>
+                    {supabaseStatus?.configured ? (
+                      supabaseStatus.reachable ? (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid #10B981', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                          ● Synced Live ({supabaseStatus.row_count} rows in {supabaseStatus.table_name})
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(245, 158, 11, 0.2)', color: '#F59E0B', border: '1px solid #F59E0B', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                          ● Configured (Connecting...)
+                        </span>
+                      )
+                    ) : (
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(99, 102, 241, 0.2)', color: '#818CF8', border: '1px solid #6366F1', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                        Local Engine Active (Add SUPABASE_URL to connect)
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Any manual edits to team marks or scores made in your Supabase Table Editor can be pulled and broadcasted immediately to all live screens.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handlePullSupabase}
+                  disabled={supabaseLoading}
+                  className="btn btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', borderColor: '#06B6D4' }}
+                  title="Pull manual mark adjustments from Supabase Table Editor"
+                >
+                  <DownloadCloud size={16} color="#06B6D4" />
+                  <span>{supabaseLoading ? 'Syncing...' : 'Pull from Supabase'}</span>
+                </button>
+
+                <button
+                  onClick={handlePushSupabase}
+                  disabled={supabaseLoading}
+                  className="btn btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', borderColor: '#10B981' }}
+                  title="Push current leaderboard state to Supabase"
+                >
+                  <UploadCloud size={16} color="#10B981" />
+                  <span>Push to Supabase</span>
+                </button>
+
+                <button
+                  onClick={handleCopySql}
+                  className="btn btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                  title="Copy Supabase table creation SQL"
+                >
+                  <Copy size={16} />
+                  <span>Copy SQL Setup</span>
+                </button>
+
+                <a
+                  href={api.exportCSVUrl()}
+                  download="quiz_results_export.csv"
+                  className="btn btn-success"
+                  style={{ padding: '8px 16px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                >
+                  <Download size={16} />
+                  <span>Export CSV</span>
+                </a>
+              </div>
+            </div>
           </div>
 
           <Leaderboard
             leaderboard={leaderboard}
             isFinal={status === 'COMPLETED'}
+            onEditMarks={handleOpenEditMarks}
           />
         </div>
       )}
@@ -829,6 +964,74 @@ export default function AdminDashboard({ quizState, onStateUpdate }) {
                 </button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
                   Save Question
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Edit Team Marks (Supabase & Live Sync) */}
+      {showMarksModal && editTeam && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 999
+        }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '32px', border: '1px solid #10B981' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
+                <Edit3 size={18} />
+              </div>
+              <div>
+                <h3 className="font-display" style={{ fontSize: '1.25rem', margin: 0 }}>Adjust Team Marks</h3>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Syncs to Supabase and updates live leaderboard ranks
+                </p>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px' }}>
+              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#FFF' }}>{editTeam.team_name}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>ID: {editTeam.team_id}</div>
+            </div>
+
+            <form onSubmit={handleSaveMarks}>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '6px', color: 'var(--text-muted)' }}>
+                  Total Marks / Score (pts)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  className="input-field"
+                  value={editMarksVal}
+                  onChange={(e) => setEditMarksVal(Number(e.target.value))}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMarksModal(false)}
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ flex: 1, background: '#10B981' }}
+                >
+                  Save & Sync
                 </button>
               </div>
             </form>
