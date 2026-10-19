@@ -5,8 +5,30 @@ import requests
 
 logger = logging.getLogger("SupabaseService")
 
-SUPABASE_TABLE_SQL = """-- Run this in your Supabase project's SQL Editor:
-CREATE TABLE IF NOT EXISTS leaderboard (
+SUPABASE_TABLE_SQL = """-- ================================================================
+-- SUPABASE COMPLETE SETUP SCRIPT (Teams, Admins & Leaderboard)
+-- Run this in your Supabase Project -> SQL Editor
+-- ================================================================
+
+-- 1. TEAMS TABLE (Manage all team logins directly in Supabase)
+CREATE TABLE IF NOT EXISTS public.teams (
+    team_id TEXT PRIMARY KEY,
+    team_name TEXT NOT NULL,
+    password TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 2. ADMINS TABLE (Manage admin & organizer logins directly in Supabase)
+CREATE TABLE IF NOT EXISTS public.admins (
+    username TEXT PRIMARY KEY,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 3. LEADERBOARD TABLE (Synced live marks & rankings)
+CREATE TABLE IF NOT EXISTS public.leaderboard (
     quiz_id TEXT NOT NULL DEFAULT 'default_quiz',
     team_id TEXT NOT NULL,
     team_name TEXT NOT NULL,
@@ -20,20 +42,40 @@ CREATE TABLE IF NOT EXISTS leaderboard (
 );
 
 -- Enable Row Level Security (RLS)
-ALTER TABLE leaderboard ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.leaderboard ENABLE ROW LEVEL SECURITY;
 
--- Allow public read access to the leaderboard
-DROP POLICY IF EXISTS "Allow public read access to leaderboard" ON leaderboard;
-CREATE POLICY "Allow public read access to leaderboard"
-ON leaderboard FOR SELECT
-USING (true);
+-- Allow read & write access
+DROP POLICY IF EXISTS "Allow public read teams" ON public.teams;
+CREATE POLICY "Allow public read teams" ON public.teams FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public write teams" ON public.teams;
+CREATE POLICY "Allow public write teams" ON public.teams FOR ALL USING (true) WITH CHECK (true);
 
--- Allow write/update access (for backend and service key)
-DROP POLICY IF EXISTS "Allow public insert/update to leaderboard" ON leaderboard;
-CREATE POLICY "Allow public insert/update to leaderboard"
-ON leaderboard FOR ALL
-USING (true)
-WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public read admins" ON public.admins;
+CREATE POLICY "Allow public read admins" ON public.admins FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public write admins" ON public.admins;
+CREATE POLICY "Allow public write admins" ON public.admins FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read leaderboard" ON public.leaderboard;
+CREATE POLICY "Allow public read leaderboard" ON public.leaderboard FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public write leaderboard" ON public.leaderboard;
+CREATE POLICY "Allow public write leaderboard" ON public.leaderboard FOR ALL USING (true) WITH CHECK (true);
+
+-- Insert Starter Teams (You can edit, add, or delete these in Supabase Table Editor!)
+INSERT INTO public.teams (team_id, team_name, password) VALUES
+('TEAM001', 'Quantum Voyagers', 'pass123'),
+('TEAM002', 'Cyber Knights', 'pass123'),
+('TEAM003', 'Binary Bandits', 'pass123'),
+('TEAM004', 'Neural Ninjas', 'pass123'),
+('TEAM005', 'Apex Legends', 'pass123')
+ON CONFLICT (team_id) DO NOTHING;
+
+-- Insert Starter Admins (You can edit passwords or add organizers in Supabase Table Editor!)
+INSERT INTO public.admins (username, password, role) VALUES
+('admin', 'admin123', 'admin'),
+('organizer', 'admin123', 'admin')
+ON CONFLICT (username) DO NOTHING;
 """
 
 class SupabaseService:
@@ -242,5 +284,98 @@ class SupabaseService:
         except Exception as e:
             logger.error(f"Failed to update team marks in Supabase: {e}")
             return False
+
+    def get_team_from_supabase(self, identifier: str) -> dict | None:
+        """
+        Fetches team by team_id OR team_name from Supabase public.teams table.
+        Allows logging in with either ID or Team Name as defined in Supabase.
+        """
+        self.reload_config()
+        if not self.is_configured() or not identifier:
+            return None
+
+        try:
+            import urllib.parse
+            clean_id = urllib.parse.quote(identifier.strip())
+            # Search by team_id OR team_name
+            endpoint = f"{self.url}/rest/v1/teams?or=(team_id.ilike.{clean_id},team_name.ilike.{clean_id})&select=*&limit=1"
+            resp = requests.get(endpoint, headers=self._get_headers(), timeout=4)
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows:
+                    return rows[0]
+        except Exception as e:
+            logger.error(f"Error fetching team '{identifier}' from Supabase: {e}")
+        return None
+
+    def get_all_teams_from_supabase(self) -> list:
+        """Fetches all teams defined in the Supabase public.teams table."""
+        self.reload_config()
+        if not self.is_configured():
+            return []
+
+        try:
+            endpoint = f"{self.url}/rest/v1/teams?select=*&order=created_at.asc"
+            resp = requests.get(endpoint, headers=self._get_headers(), timeout=4)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception as e:
+            logger.error(f"Error fetching all teams from Supabase: {e}")
+        return []
+
+    def create_team_in_supabase(self, team_id: str, team_name: str, password: str) -> bool:
+        """Creates or updates a team record directly in Supabase public.teams table."""
+        self.reload_config()
+        if not self.is_configured():
+            return False
+
+        try:
+            endpoint = f"{self.url}/rest/v1/teams?on_conflict=team_id"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            payload = [{
+                "team_id": team_id.strip().upper(),
+                "team_name": team_name.strip(),
+                "password": password.strip(),
+                "is_active": True,
+                "created_at": now_iso
+            }]
+            resp = requests.post(endpoint, headers=self._get_headers(prefer_upsert=True), json=payload, timeout=4)
+            return resp.status_code in [200, 201]
+        except Exception as e:
+            logger.error(f"Error creating team in Supabase: {e}")
+            return False
+
+    def delete_team_in_supabase(self, team_id: str) -> bool:
+        """Deletes a team record from Supabase public.teams table."""
+        self.reload_config()
+        if not self.is_configured():
+            return False
+
+        try:
+            endpoint = f"{self.url}/rest/v1/teams?team_id=eq.{team_id.strip().upper()}"
+            resp = requests.delete(endpoint, headers=self._get_headers(), timeout=4)
+            return resp.status_code in [200, 204]
+        except Exception as e:
+            logger.error(f"Error deleting team from Supabase: {e}")
+            return False
+
+    def get_admin_from_supabase(self, username: str) -> dict | None:
+        """Fetches admin credentials from Supabase public.admins table."""
+        self.reload_config()
+        if not self.is_configured() or not username:
+            return None
+
+        try:
+            import urllib.parse
+            clean_u = urllib.parse.quote(username.strip())
+            endpoint = f"{self.url}/rest/v1/admins?username=ilike.{clean_u}&select=*&limit=1"
+            resp = requests.get(endpoint, headers=self._get_headers(), timeout=4)
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows:
+                    return rows[0]
+        except Exception as e:
+            logger.error(f"Error fetching admin '{username}' from Supabase: {e}")
+        return None
 
 supabase_service = SupabaseService()

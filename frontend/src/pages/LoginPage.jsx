@@ -176,14 +176,14 @@ export default function LoginPage({ onLoginSuccess }) {
           <form onSubmit={handleTeamSubmit}>
             <div style={{ marginBottom: '18px' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                Team ID (Issued by Host)
+                Team ID or Team Name
               </label>
               <input
                 type="text"
-                placeholder="e.g. TEAM001"
+                placeholder="e.g. TEAM001 or Quantum Voyagers"
                 className="input-field"
                 value={teamId}
-                onChange={(e) => setTeamId(e.target.value.toUpperCase())}
+                onChange={(e) => setTeamId(e.target.value)}
                 required
                 autoFocus
               />

@@ -27,6 +27,22 @@ def authenticate():
 
 @admin_bp.route("/api/admin/teams", methods=["GET"])
 def list_teams():
+    # If Supabase is configured, sync latest teams defined in Supabase
+    if supabase_service.is_configured():
+        supa_teams = supabase_service.get_all_teams_from_supabase()
+        for st in supa_teams:
+            tid = str(st["team_id"]).strip().upper()
+            db.teams.update_one(
+                {"team_id": tid},
+                {"$set": {
+                    "team_id": tid,
+                    "team_name": str(st.get("team_name") or tid),
+                    "is_active": st.get("is_active", True),
+                    "synced_from_supabase": True
+                }},
+                upsert=True
+            )
+
     teams = db.teams.find()
     sessions = session_manager.get_active_sessions()
     result = []
@@ -56,9 +72,14 @@ def create_team():
     if existing:
         return jsonify({"error": f"Team ID {team_id} already exists."}), 409
 
+    # Save to Supabase if configured
+    if supabase_service.is_configured():
+        supabase_service.create_team_in_supabase(team_id, team_name, password)
+
     db.teams.insert_one({
         "team_id": team_id,
         "team_name": team_name,
+        "password": password,
         "password_hash": hash_password(password),
         "is_active": True,
         "created_at": time.time()
@@ -84,11 +105,15 @@ def import_teams_csv():
         team_name = row[1].strip() if len(row) > 1 and row[1].strip() else team_id
         password = row[2].strip() if len(row) > 2 and row[2].strip() else "pass123"
         try:
+            if supabase_service.is_configured():
+                supabase_service.create_team_in_supabase(team_id, team_name, password)
+
             db.teams.update_one(
                 {"team_id": team_id},
                 {"$set": {
                     "team_id": team_id,
                     "team_name": team_name,
+                    "password": password,
                     "password_hash": hash_password(password),
                     "is_active": True,
                     "created_at": time.time()
@@ -114,18 +139,30 @@ def reset_password(team_id):
     team_id = team_id.upper()
     data = request.get_json() or {}
     new_pwd = data.get("password") or "pass123"
+    team = db.teams.find_one({"team_id": team_id}) or {}
+    team_name = team.get("team_name", team_id)
+
+    if supabase_service.is_configured():
+        supabase_service.create_team_in_supabase(team_id, team_name, new_pwd)
+
     db.teams.update_one(
         {"team_id": team_id},
-        {"$set": {"password_hash": hash_password(new_pwd)}}
+        {"$set": {
+            "password": new_pwd,
+            "password_hash": hash_password(new_pwd)
+        }}
     )
     return jsonify({"success": True, "message": f"Password reset for {team_id}."})
 
 @admin_bp.route("/api/admin/teams/<team_id>", methods=["DELETE"])
 def delete_team(team_id):
     team_id = team_id.upper()
+    if supabase_service.is_configured():
+        supabase_service.delete_team_in_supabase(team_id)
     db.teams.delete_one({"team_id": team_id})
     session_manager.release_session(team_id)
     return jsonify({"success": True})
+
 
 # --- QUESTIONS MANAGEMENT ---
 
