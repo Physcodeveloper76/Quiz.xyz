@@ -1,35 +1,25 @@
 -- ==============================================================================
 -- SUPABASE COMPLETE TOURNAMENT DATABASE SETUP
 -- Copy and run this script in your Supabase Project -> SQL Editor
--- This creates 3 sheets in your Table Editor:
---   1. teams       -> Manage team names and passwords (used for website login)
---   2. admins      -> Manage admin/host credentials (used for host login)
---   3. leaderboard -> Real-time quiz leaderboard, marks, and rankings
+-- This creates 2 primary sheets in your Table Editor:
+--   1. login_credentials -> Unified table of both Team and Organizer logins
+--   2. leaderboard       -> Real-time quiz scores, marks, and rankings
 -- ==============================================================================
 
 -- ------------------------------------------------------------------------------
--- 1. TEAMS TABLE (Credentials & Profile)
+-- 1. LOGIN CREDENTIALS TABLE (Teams + Organizers in One Sheet)
 -- ------------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.teams (
-    team_id TEXT PRIMARY KEY,
-    team_name TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS public.login_credentials (
+    username TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
     password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'team', -- 'team' or 'organizer'
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ------------------------------------------------------------------------------
--- 2. ADMINS TABLE (Host Organizer Credentials)
--- ------------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.admins (
-    username TEXT PRIMARY KEY,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ------------------------------------------------------------------------------
--- 3. LEADERBOARD TABLE (Live Scores, Marks, and Speed)
+-- 2. LEADERBOARD TABLE (Live Scores, Marks, and Speed)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.leaderboard (
     quiz_id TEXT NOT NULL DEFAULT 'default_quiz',
@@ -49,23 +39,16 @@ CREATE INDEX IF NOT EXISTS idx_leaderboard_marks_time
 ON public.leaderboard (quiz_id, marks DESC, total_time_ms ASC);
 
 -- ------------------------------------------------------------------------------
--- 4. ROW LEVEL SECURITY (RLS) POLICIES
+-- 3. ROW LEVEL SECURITY (RLS) POLICIES
 -- ------------------------------------------------------------------------------
-ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.login_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leaderboard ENABLE ROW LEVEL SECURITY;
 
--- TEAMS POLICIES
-DROP POLICY IF EXISTS "Allow public read teams" ON public.teams;
-CREATE POLICY "Allow public read teams" ON public.teams FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public write teams" ON public.teams;
-CREATE POLICY "Allow public write teams" ON public.teams FOR ALL USING (true) WITH CHECK (true);
-
--- ADMINS POLICIES
-DROP POLICY IF EXISTS "Allow public read admins" ON public.admins;
-CREATE POLICY "Allow public read admins" ON public.admins FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public write admins" ON public.admins;
-CREATE POLICY "Allow public write admins" ON public.admins FOR ALL USING (true) WITH CHECK (true);
+-- LOGIN CREDENTIALS POLICIES
+DROP POLICY IF EXISTS "Allow public read login_credentials" ON public.login_credentials;
+CREATE POLICY "Allow public read login_credentials" ON public.login_credentials FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public write login_credentials" ON public.login_credentials;
+CREATE POLICY "Allow public write login_credentials" ON public.login_credentials FOR ALL USING (true) WITH CHECK (true);
 
 -- LEADERBOARD POLICIES
 DROP POLICY IF EXISTS "Allow public read leaderboard" ON public.leaderboard;
@@ -74,20 +57,18 @@ DROP POLICY IF EXISTS "Allow public write leaderboard" ON public.leaderboard;
 CREATE POLICY "Allow public write leaderboard" ON public.leaderboard FOR ALL USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------------
--- 5. STARTER DATA (Edit, add, or delete these rows directly in Supabase Table Editor!)
+-- 4. STARTER CREDENTIALS (Edit, add, or delete these in Supabase Table Editor!)
 -- ------------------------------------------------------------------------------
+INSERT INTO public.login_credentials (username, name, password, role) VALUES
+-- Organizers (Host Login)
+('admin', 'Head Organizer', 'admin123', 'organizer'),
+('organizer', 'Quiz Master', 'admin123', 'organizer'),
 
--- Insert Starter Teams
-INSERT INTO public.teams (team_id, team_name, password) VALUES
-('TEAM001', 'Quantum Voyagers', 'pass123'),
-('TEAM002', 'Cyber Knights', 'pass123'),
-('TEAM003', 'Binary Bandits', 'pass123'),
-('TEAM004', 'Neural Ninjas', 'pass123'),
-('TEAM005', 'Apex Legends', 'pass123')
-ON CONFLICT (team_id) DO NOTHING;
-
--- Insert Starter Admin/Host Credentials
-INSERT INTO public.admins (username, password, role) VALUES
-('admin', 'admin123', 'admin'),
-('organizer', 'admin123', 'admin')
-ON CONFLICT (username) DO NOTHING;
+-- Teams (Team Login)
+('TEAM001', 'Quantum Voyagers', 'pass123', 'team'),
+('TEAM002', 'Cyber Knights', 'pass123', 'team'),
+('TEAM003', 'Binary Bandits', 'pass123', 'team'),
+('TEAM004', 'Neural Ninjas', 'pass123', 'team'),
+('TEAM005', 'Apex Legends', 'pass123', 'team')
+ON CONFLICT (username) DO UPDATE 
+SET password = EXCLUDED.password, name = EXCLUDED.name, role = EXCLUDED.role;

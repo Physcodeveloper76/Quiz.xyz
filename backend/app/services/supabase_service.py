@@ -6,28 +6,21 @@ import requests
 logger = logging.getLogger("SupabaseService")
 
 SUPABASE_TABLE_SQL = """-- ================================================================
--- SUPABASE COMPLETE SETUP SCRIPT (Teams, Admins & Leaderboard)
+-- SUPABASE COMPLETE SETUP (login_credentials & leaderboard)
 -- Run this in your Supabase Project -> SQL Editor
 -- ================================================================
 
--- 1. TEAMS TABLE (Manage all team logins directly in Supabase)
-CREATE TABLE IF NOT EXISTS public.teams (
-    team_id TEXT PRIMARY KEY,
-    team_name TEXT NOT NULL,
+-- 1. LOGIN CREDENTIALS TABLE (Unified Sheet for BOTH Teams and Organizers)
+CREATE TABLE IF NOT EXISTS public.login_credentials (
+    username TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
     password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'team', -- 'team' or 'organizer'
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 2. ADMINS TABLE (Manage admin & organizer logins directly in Supabase)
-CREATE TABLE IF NOT EXISTS public.admins (
-    username TEXT PRIMARY KEY,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 3. LEADERBOARD TABLE (Synced live marks & rankings)
+-- 2. LEADERBOARD TABLE (Synced live marks, scores & rankings)
 CREATE TABLE IF NOT EXISTS public.leaderboard (
     quiz_id TEXT NOT NULL DEFAULT 'default_quiz',
     team_id TEXT NOT NULL,
@@ -42,40 +35,30 @@ CREATE TABLE IF NOT EXISTS public.leaderboard (
 );
 
 -- Enable Row Level Security (RLS)
-ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.login_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leaderboard ENABLE ROW LEVEL SECURITY;
 
--- Allow read & write access
-DROP POLICY IF EXISTS "Allow public read teams" ON public.teams;
-CREATE POLICY "Allow public read teams" ON public.teams FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public write teams" ON public.teams;
-CREATE POLICY "Allow public write teams" ON public.teams FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Allow public read admins" ON public.admins;
-CREATE POLICY "Allow public read admins" ON public.admins FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public write admins" ON public.admins;
-CREATE POLICY "Allow public write admins" ON public.admins FOR ALL USING (true) WITH CHECK (true);
+-- Allow public read & write access
+DROP POLICY IF EXISTS "Allow public read login_credentials" ON public.login_credentials;
+CREATE POLICY "Allow public read login_credentials" ON public.login_credentials FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public write login_credentials" ON public.login_credentials;
+CREATE POLICY "Allow public write login_credentials" ON public.login_credentials FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Allow public read leaderboard" ON public.leaderboard;
 CREATE POLICY "Allow public read leaderboard" ON public.leaderboard FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public write leaderboard" ON public.leaderboard;
 CREATE POLICY "Allow public write leaderboard" ON public.leaderboard FOR ALL USING (true) WITH CHECK (true);
 
--- Insert Starter Teams (You can edit, add, or delete these in Supabase Table Editor!)
-INSERT INTO public.teams (team_id, team_name, password) VALUES
-('TEAM001', 'Quantum Voyagers', 'pass123'),
-('TEAM002', 'Cyber Knights', 'pass123'),
-('TEAM003', 'Binary Bandits', 'pass123'),
-('TEAM004', 'Neural Ninjas', 'pass123'),
-('TEAM005', 'Apex Legends', 'pass123')
-ON CONFLICT (team_id) DO NOTHING;
-
--- Insert Starter Admins (You can edit passwords or add organizers in Supabase Table Editor!)
-INSERT INTO public.admins (username, password, role) VALUES
-('admin', 'admin123', 'admin'),
-('organizer', 'admin123', 'admin')
-ON CONFLICT (username) DO NOTHING;
+-- Insert Starter Credentials (Both Organizers and Teams in one sheet!)
+INSERT INTO public.login_credentials (username, name, password, role) VALUES
+('admin', 'Head Organizer', 'admin123', 'organizer'),
+('organizer', 'Host', 'admin123', 'organizer'),
+('TEAM001', 'Quantum Voyagers', 'pass123', 'team'),
+('TEAM002', 'Cyber Knights', 'pass123', 'team'),
+('TEAM003', 'Binary Bandits', 'pass123', 'team'),
+('TEAM004', 'Neural Ninjas', 'pass123', 'team'),
+('TEAM005', 'Apex Legends', 'pass123', 'team')
+ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, name = EXCLUDED.name;
 """
 
 class SupabaseService:
@@ -378,4 +361,97 @@ class SupabaseService:
             logger.error(f"Error fetching admin '{username}' from Supabase: {e}")
         return None
 
+    # --- UNIFIED LOGIN CREDENTIALS METHODS ---
+
+    def get_credential_from_supabase(self, identifier: str, role: str = None) -> dict | None:
+        """
+        Fetches user login credential from Supabase public.login_credentials table.
+        Matches by username OR name (case-insensitive).
+        Optionally filters by role ('team' or 'organizer').
+        """
+        self.reload_config()
+        if not self.is_configured() or not identifier:
+            return None
+
+        try:
+            import urllib.parse
+            clean_id = urllib.parse.quote(identifier.strip())
+            endpoint = f"{self.url}/rest/v1/login_credentials?or=(username.ilike.{clean_id},name.ilike.{clean_id})&select=*&limit=1"
+            if role:
+                if role == "organizer":
+                    endpoint += "&role=in.(organizer,admin,host)"
+                else:
+                    endpoint += f"&role=eq.{urllib.parse.quote(role)}"
+
+            resp = requests.get(endpoint, headers=self._get_headers(), timeout=4)
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows:
+                    return rows[0]
+        except Exception as e:
+            logger.error(f"Error fetching login_credentials '{identifier}' from Supabase: {e}")
+        return None
+
+    def get_all_team_credentials_from_supabase(self) -> list:
+        """Fetches all teams from public.login_credentials table (role = 'team')."""
+        self.reload_config()
+        if not self.is_configured():
+            return []
+
+        try:
+            endpoint = f"{self.url}/rest/v1/login_credentials?role=eq.team&select=*&order=username.asc"
+            resp = requests.get(endpoint, headers=self._get_headers(), timeout=4)
+            if resp.status_code == 200:
+                rows = resp.json()
+                return [{
+                    "team_id": r["username"],
+                    "team_name": r.get("name") or r["username"],
+                    "password": r.get("password"),
+                    "is_active": r.get("is_active", True),
+                    "created_at": r.get("created_at")
+                } for r in rows]
+        except Exception as e:
+            logger.error(f"Error fetching team login credentials from Supabase: {e}")
+        return []
+
+    def create_or_update_credential_in_supabase(self, username: str, name: str, password: str, role: str = "team") -> bool:
+        """Upserts a credential directly into public.login_credentials table."""
+        self.reload_config()
+        if not self.is_configured():
+            return False
+
+        try:
+            endpoint = f"{self.url}/rest/v1/login_credentials?on_conflict=username"
+            now_iso = datetime.now(timezone.utc).isoformat()
+            payload = [{
+                "username": username.strip(),
+                "name": name.strip(),
+                "password": password.strip(),
+                "role": role.strip().lower(),
+                "is_active": True,
+                "created_at": now_iso
+            }]
+            resp = requests.post(endpoint, headers=self._get_headers(prefer_upsert=True), json=payload, timeout=4)
+            return resp.status_code in [200, 201]
+        except Exception as e:
+            logger.error(f"Error creating/updating login_credentials in Supabase: {e}")
+            return False
+
+    def delete_credential_in_supabase(self, username: str) -> bool:
+        """Deletes a credential from public.login_credentials table."""
+        self.reload_config()
+        if not self.is_configured():
+            return False
+
+        try:
+            import urllib.parse
+            clean_u = urllib.parse.quote(username.strip())
+            endpoint = f"{self.url}/rest/v1/login_credentials?username=eq.{clean_u}"
+            resp = requests.delete(endpoint, headers=self._get_headers(), timeout=4)
+            return resp.status_code in [200, 204]
+        except Exception as e:
+            logger.error(f"Error deleting login_credentials from Supabase: {e}")
+            return False
+
 supabase_service = SupabaseService()
+

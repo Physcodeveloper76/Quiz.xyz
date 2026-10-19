@@ -29,6 +29,22 @@ def authenticate():
 def list_teams():
     # If Supabase is configured, sync latest teams defined in Supabase
     if supabase_service.is_configured():
+        # 1. Check login_credentials table (role = 'team')
+        cred_teams = supabase_service.get_all_team_credentials_from_supabase()
+        for ct in cred_teams:
+            tid = str(ct["team_id"]).strip().upper()
+            db.teams.update_one(
+                {"team_id": tid},
+                {"$set": {
+                    "team_id": tid,
+                    "team_name": str(ct.get("team_name") or tid),
+                    "is_active": ct.get("is_active", True),
+                    "synced_from_supabase": True
+                }},
+                upsert=True
+            )
+
+        # 2. Check teams table
         supa_teams = supabase_service.get_all_teams_from_supabase()
         for st in supa_teams:
             tid = str(st["team_id"]).strip().upper()
@@ -72,8 +88,9 @@ def create_team():
     if existing:
         return jsonify({"error": f"Team ID {team_id} already exists."}), 409
 
-    # Save to Supabase if configured
+    # Save to Supabase if configured (both login_credentials and teams tables)
     if supabase_service.is_configured():
+        supabase_service.create_or_update_credential_in_supabase(team_id, team_name, password, role="team")
         supabase_service.create_team_in_supabase(team_id, team_name, password)
 
     db.teams.insert_one({
@@ -106,6 +123,7 @@ def import_teams_csv():
         password = row[2].strip() if len(row) > 2 and row[2].strip() else "pass123"
         try:
             if supabase_service.is_configured():
+                supabase_service.create_or_update_credential_in_supabase(team_id, team_name, password, role="team")
                 supabase_service.create_team_in_supabase(team_id, team_name, password)
 
             db.teams.update_one(
@@ -143,6 +161,7 @@ def reset_password(team_id):
     team_name = team.get("team_name", team_id)
 
     if supabase_service.is_configured():
+        supabase_service.create_or_update_credential_in_supabase(team_id, team_name, new_pwd, role="team")
         supabase_service.create_team_in_supabase(team_id, team_name, new_pwd)
 
     db.teams.update_one(
@@ -158,6 +177,7 @@ def reset_password(team_id):
 def delete_team(team_id):
     team_id = team_id.upper()
     if supabase_service.is_configured():
+        supabase_service.delete_credential_in_supabase(team_id)
         supabase_service.delete_team_in_supabase(team_id)
     db.teams.delete_one({"team_id": team_id})
     session_manager.release_session(team_id)

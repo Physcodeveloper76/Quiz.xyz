@@ -60,19 +60,19 @@ def team_login():
 
     team = None
 
-    # 1. Check Supabase public.teams table first if configured (Authoritative source)
+    # 1. Check Supabase public.login_credentials table first (Unified table for Teams & Organizers)
     if supabase_service.is_configured():
-        supa_team = supabase_service.get_team_from_supabase(identifier)
-        if supa_team:
-            if not supa_team.get("is_active", True):
+        cred = supabase_service.get_credential_from_supabase(identifier, role="team")
+        if cred:
+            if not cred.get("is_active", True):
                 return jsonify({"error": "This team account has been disabled in Supabase."}), 403
 
-            stored_pwd = supa_team.get("password", "")
+            stored_pwd = cred.get("password", "")
             if not check_password_match(stored_pwd, password):
                 return jsonify({"error": "Invalid team credentials."}), 401
 
-            actual_tid = str(supa_team["team_id"]).strip().upper()
-            team_name = str(supa_team.get("team_name") or actual_tid)
+            actual_tid = str(cred["username"]).strip().upper()
+            team_name = str(cred.get("name") or actual_tid)
 
             # Sync team into local memory DB
             db.teams.update_one(
@@ -86,6 +86,32 @@ def team_login():
                 upsert=True
             )
             team = {"team_id": actual_tid, "team_name": team_name}
+
+        # 1b. Fallback to public.teams table if login_credentials didn't have it
+        if not team:
+            supa_team = supabase_service.get_team_from_supabase(identifier)
+            if supa_team:
+                if not supa_team.get("is_active", True):
+                    return jsonify({"error": "This team account has been disabled in Supabase."}), 403
+
+                stored_pwd = supa_team.get("password", "")
+                if not check_password_match(stored_pwd, password):
+                    return jsonify({"error": "Invalid team credentials."}), 401
+
+                actual_tid = str(supa_team["team_id"]).strip().upper()
+                team_name = str(supa_team.get("team_name") or actual_tid)
+
+                db.teams.update_one(
+                    {"team_id": actual_tid},
+                    {"$set": {
+                        "team_id": actual_tid,
+                        "team_name": team_name,
+                        "is_active": True,
+                        "synced_from_supabase": True
+                    }},
+                    upsert=True
+                )
+                team = {"team_id": actual_tid, "team_name": team_name}
 
     # 2. Fall back to local DB if not found in Supabase
     if not team:
@@ -133,14 +159,25 @@ def admin_login():
     authenticated = False
     admin_display_name = username
 
-    # 1. Check Supabase public.admins table first if configured
+    # 1. Check Supabase public.login_credentials table first (role = 'organizer')
     if supabase_service.is_configured():
-        supa_admin = supabase_service.get_admin_from_supabase(username)
-        if supa_admin:
-            stored_pwd = supa_admin.get("password", "")
+        cred = supabase_service.get_credential_from_supabase(username, role="organizer")
+        if cred:
+            if not cred.get("is_active", True):
+                return jsonify({"error": "This organizer account has been disabled in Supabase."}), 403
+            stored_pwd = cred.get("password", "")
             if check_password_match(stored_pwd, password):
                 authenticated = True
-                admin_display_name = supa_admin.get("username", username)
+                admin_display_name = cred.get("name") or cred.get("username", username)
+
+        # 1b. Fallback to public.admins table
+        if not authenticated:
+            supa_admin = supabase_service.get_admin_from_supabase(username)
+            if supa_admin:
+                stored_pwd = supa_admin.get("password", "")
+                if check_password_match(stored_pwd, password):
+                    authenticated = True
+                    admin_display_name = supa_admin.get("username", username)
 
     # 2. Fall back to environment credentials
     if not authenticated:
