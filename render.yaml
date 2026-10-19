@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: live-quiz-platform
+    env: python
+    buildCommand: "npm --prefix frontend install && npm --prefix frontend run build && pip install -r backend/requirements.txt"
+    startCommand: "cd backend && python run.py"
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: organizer
+      - key: ADMIN_PASSWORD
+        value: admin123
+      - key: SUPABASE_URL
+        value: https://xxvtfrgllwkmyixeddit.supabase.co
+      - key: SUPABASE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4dnRmcmdsbHdrbXlpeGVkZGl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjM4NTcwOCwiZXhwIjoyMTA3OTYxNzA4fQ._5NvPzXoq78sBtf-GAG-mxUJoEPRAInhgHvSznVJcNg
+      - key: SUPABASE_LEADERBOARD_TABLE
+        value: leaderboard
