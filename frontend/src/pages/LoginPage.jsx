@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Users, Zap, KeyRound, AlertCircle, Sparkles } from 'lucide-react';
+import { Shield, Users, Zap, KeyRound, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { sounds } from '../services/AudioCues';
 
@@ -7,8 +7,8 @@ export default function LoginPage({ onLoginSuccess }) {
   const [tab, setTab] = useState('team'); // 'team' or 'admin'
   const [teamId, setTeamId] = useState('');
   const [teamPassword, setTeamPassword] = useState('');
-  const [adminUsername, setAdminUsername] = useState('admin');
-  const [adminPassword, setAdminPassword] = useState('admin123');
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -51,11 +51,6 @@ export default function LoginPage({ onLoginSuccess }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillQuickTeam = (tid, pwd) => {
-    setTeamId(tid);
-    setTeamPassword(pwd);
   };
 
   return (
@@ -180,7 +175,6 @@ export default function LoginPage({ onLoginSuccess }) {
               </label>
               <input
                 type="text"
-                placeholder="e.g. TEAM001 or Quantum Voyagers"
                 className="input-field"
                 value={teamId}
                 onChange={(e) => setTeamId(e.target.value)}
@@ -195,7 +189,6 @@ export default function LoginPage({ onLoginSuccess }) {
               </label>
               <input
                 type="password"
-                placeholder="Enter team password"
                 className="input-field"
                 value={teamPassword}
                 onChange={(e) => setTeamPassword(e.target.value)}
@@ -211,35 +204,6 @@ export default function LoginPage({ onLoginSuccess }) {
             >
               {loading ? 'Authenticating & Claiming Session...' : 'Enter Championship Arena'}
             </button>
-
-            {/* Quick Demo Credentials */}
-            <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '8px' }}>
-                <Sparkles size={14} />
-                <span>QUICK TEST CREDENTIALS (CLICK TO FILL):</span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {['TEAM001', 'TEAM002', 'TEAM003', 'TEAM004'].map((tid) => (
-                  <button
-                    key={tid}
-                    type="button"
-                    onClick={() => fillQuickTeam(tid, 'pass123')}
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      color: 'var(--text-muted)',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      fontFamily: 'var(--font-mono)',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {tid}
-                  </button>
-                ))}
-              </div>
-            </div>
           </form>
         ) : (
           /* Host Admin Form */
@@ -250,7 +214,6 @@ export default function LoginPage({ onLoginSuccess }) {
               </label>
               <input
                 type="text"
-                placeholder="admin"
                 className="input-field"
                 value={adminUsername}
                 onChange={(e) => setAdminUsername(e.target.value)}
@@ -265,7 +228,6 @@ export default function LoginPage({ onLoginSuccess }) {
               </label>
               <input
                 type="password"
-                placeholder="admin123"
                 className="input-field"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
