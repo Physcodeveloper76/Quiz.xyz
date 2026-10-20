@@ -8,9 +8,16 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from app import create_app, socketio
 
 app = create_app()
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
