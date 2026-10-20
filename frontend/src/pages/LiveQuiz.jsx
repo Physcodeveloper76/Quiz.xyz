@@ -7,7 +7,7 @@ import { api } from '../services/api';
 import { sounds } from '../services/AudioCues';
 import { Award, Pause, Sparkles, Loader } from 'lucide-react';
 
-export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
+export default function LiveQuiz({ quizState, team, onAnswerSubmitted, onQuizStateUpdate }) {
   const [selectedOption, setSelectedOption] = useState(null);
   const [isLocked, setIsLocked] = useState(false);
   const [pointsEarned, setPointsEarned] = useState(0);
@@ -15,6 +15,19 @@ export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
   const currentQ = quizState?.question;
   const status = quizState?.status;
   const isRevealed = status === 'REVEAL' || status === 'QUESTION_CLOSED' || status === 'COMPLETED';
+
+  // If question data is null but quiz is active, immediately fetch from server
+  useEffect(() => {
+    if (!currentQ && (status === 'QUESTION_OPEN' || status === 'REVEAL')) {
+      api.getCurrentQuiz()
+        .then((state) => {
+          if (state && onQuizStateUpdate) {
+            onQuizStateUpdate(state);
+          }
+        })
+        .catch((err) => console.warn('Could not pull active quiz state:', err));
+    }
+  }, [currentQ, status, onQuizStateUpdate]);
 
   // Check if team already submitted an answer in existing state
   useEffect(() => {
@@ -58,14 +71,24 @@ export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
     };
   }, [team, onAnswerSubmitted]);
 
-  const handleSelectOption = (optionId) => {
+  const handleSelectOption = async (optionId) => {
     if (isLocked || isRevealed || !currentQ) return;
     setSelectedOption(optionId);
+    setIsLocked(true);
+    sounds.playLock();
     try {
-      socketService.submitAnswer(currentQ.question_id, optionId);
-      setIsLocked(true);
+      if (socketService.connected) {
+        socketService.submitAnswer(currentQ.question_id, optionId);
+      } else {
+        await api.submitAnswer(currentQ.question_id, optionId);
+      }
     } catch (err) {
-      console.error('Failed to submit answer:', err);
+      console.warn('Socket submission issue, falling back to REST API:', err);
+      try {
+        await api.submitAnswer(currentQ.question_id, optionId);
+      } catch (restErr) {
+        console.error('All submission attempts failed:', restErr);
+      }
     }
   };
 

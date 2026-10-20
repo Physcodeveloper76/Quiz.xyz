@@ -219,11 +219,12 @@ def get_me():
 
     if team_id and session_manager.validate_session(team_id, token):
         team = db.teams.find_one({"team_id": team_id})
+        team_name = (team.get("team_name") if team else None) or team_id
         return jsonify({
             "role": "team",
             "team": {
-                "team_id": team["team_id"],
-                "team_name": team.get("team_name", team_id)
+                "team_id": team_id,
+                "team_name": team_name
             },
             "quiz_state": quiz_engine.get_state()
         })

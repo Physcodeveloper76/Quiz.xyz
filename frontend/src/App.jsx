@@ -150,8 +150,13 @@ export default function App() {
         const state = await api.getCurrentQuiz();
         if (state && state.status) {
           setQuizState((prev) => {
-            // Only update if status changed or question changed (avoid flickering)
-            if (!prev || prev.status !== state.status || prev.current_question_id !== state.current_question_id) {
+            // Update if status changed, question changed, or question data was missing
+            if (
+              !prev ||
+              prev.status !== state.status ||
+              prev.current_question_id !== state.current_question_id ||
+              (!prev.question && state.question)
+            ) {
               return state;
             }
             return prev;
@@ -160,7 +165,7 @@ export default function App() {
       } catch (e) {
         // Silently ignore poll errors
       }
-    }, 8000);
+    }, 4000);
 
     return () => {
       unsubConn();
@@ -208,8 +213,21 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
         <div className="status-pill online">Synchronizing Championship Platform...</div>
+        <button
+          onClick={() => { setLoading(false); handleLogout(); }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-muted)',
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+            textDecoration: 'underline'
+          }}
+        >
+          Taking too long? Click here to sign in
+        </button>
       </div>
     );
   }
@@ -240,6 +258,7 @@ export default function App() {
             quizState={quizState}
             team={team}
             onAnswerSubmitted={() => {}}
+            onQuizStateUpdate={(st) => setQuizState(st)}
           />
         )}
       </main>

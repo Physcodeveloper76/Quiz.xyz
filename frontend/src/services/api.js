@@ -56,6 +56,14 @@ export const api = {
   // Participant Quiz
   getCurrentQuiz: () => request('/quiz/current'),
   getQuizResults: () => request('/quiz/results'),
+  submitAnswer: (questionId, selectedOption) => request('/quiz/submit', {
+    method: 'POST',
+    body: JSON.stringify({
+      question_id: questionId,
+      selected_option: selectedOption,
+      request_id: `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+    })
+  }),
 
   // Admin Teams
   getTeams: () => request('/admin/teams'),

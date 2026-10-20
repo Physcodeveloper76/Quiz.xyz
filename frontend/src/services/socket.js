@@ -26,6 +26,11 @@ class SocketService {
       this.connected = true;
       this._emitToListeners('connection_change', true);
       this._startHeartbeat();
+
+      // Automatically re-authenticate and rejoin room on connect or reconnect
+      if (this.lastJoinData) {
+        this.socket.emit('join_quiz', this.lastJoinData);
+      }
     });
 
     this.socket.on('disconnect', () => {
@@ -80,14 +85,17 @@ class SocketService {
   }
 
   join(role, teamId, token) {
-    if (!this.socket) {
-      this.connect();
-    }
-    this.socket.emit('join_quiz', {
+    this.lastJoinData = {
       role,
       team_id: teamId,
       token
-    });
+    };
+
+    if (!this.socket) {
+      this.connect();
+    } else if (this.socket.connected) {
+      this.socket.emit('join_quiz', this.lastJoinData);
+    }
   }
 
   submitAnswer(questionId, selectedOption) {
@@ -129,6 +137,7 @@ class SocketService {
   }
 
   disconnect() {
+    this.lastJoinData = null;
     this._stopHeartbeat();
     if (this.socket) {
       this.socket.disconnect();

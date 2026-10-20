@@ -36,3 +36,24 @@ def get_quiz_results():
         "leaderboard": leaderboard,
         "status": quiz_engine.get_state().get("status")
     })
+
+@quiz_bp.route("/api/quiz/submit", methods=["POST"])
+def submit_answer():
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    team_id = request.headers.get("X-Team-ID", "").strip().upper()
+    if not team_id or not session_manager.validate_session(team_id, token):
+        return jsonify({"error": "Unauthorized or session expired."}), 401
+
+    data = request.get_json() or {}
+    question_id = data.get("question_id")
+    selected_option = data.get("selected_option")
+    request_id = data.get("request_id")
+
+    if not question_id or not selected_option:
+        return jsonify({"error": "question_id and selected_option are required."}), 400
+
+    success, msg, points = quiz_engine.submit_answer(team_id, question_id, selected_option, request_id)
+    if not success:
+        return jsonify({"error": msg}), 400
+
+    return jsonify({"success": True, "message": msg, "points": points, "selected_option": selected_option})
