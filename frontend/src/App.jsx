@@ -17,6 +17,8 @@ export default function App() {
 
   // Restore authenticated session on mount
   useEffect(() => {
+    let cancelled = false;
+
     const initSession = async () => {
       const storedToken = localStorage.getItem('quiz_token');
       const storedRole = localStorage.getItem('quiz_role');
@@ -28,6 +30,7 @@ export default function App() {
 
       try {
         const me = await api.getMe();
+        if (cancelled) return;
         setRole(me.role);
         if (me.team) setTeam(me.team);
         if (me.quiz_state) setQuizState(me.quiz_state);
@@ -37,19 +40,36 @@ export default function App() {
         socketService.join(me.role, me.team?.team_id, storedToken);
       } catch (err) {
         console.warn('Session expired or invalidated:', err);
-        handleLogout();
+        if (!cancelled) handleLogout();
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     initSession();
+
+    // Safety timeout: if getMe() hangs for >6s, force show login
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 6000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+    };
   }, []);
 
   // Socket event subscriptions
   useEffect(() => {
     const unsubConn = socketService.on('connection_change', (status) => {
       setIsConnected(status);
+    });
+
+    // CRITICAL: Handle joined_success to sync quiz state after socket auth
+    const unsubJoined = socketService.on('joined_success', (data) => {
+      if (data.state) {
+        setQuizState(data.state);
+      }
     });
 
     const unsubQOpen = socketService.on('question_open', (data) => {
@@ -71,6 +91,14 @@ export default function App() {
 
     const unsubLeaderboard = socketService.on('leaderboard_update', (data) => {
       setQuizState((prev) => ({ ...prev, leaderboard: data.leaderboard }));
+    });
+
+    const unsubSubmission = socketService.on('submission_update', (data) => {
+      setQuizState((prev) => ({
+        ...prev,
+        submitted_teams_count: data.submitted_count,
+        eligible_teams_count: data.eligible_count
+      }));
     });
 
     const unsubPause = socketService.on('quiz_paused', (data) => {
@@ -114,17 +142,40 @@ export default function App() {
       handleLogout();
     });
 
+    // Periodic state poll as safety net (covers missed socket events)
+    const pollInterval = setInterval(async () => {
+      const storedToken = localStorage.getItem('quiz_token');
+      if (!storedToken) return;
+      try {
+        const state = await api.getCurrentQuiz();
+        if (state && state.status) {
+          setQuizState((prev) => {
+            // Only update if status changed or question changed (avoid flickering)
+            if (!prev || prev.status !== state.status || prev.current_question_id !== state.current_question_id) {
+              return state;
+            }
+            return prev;
+          });
+        }
+      } catch (e) {
+        // Silently ignore poll errors
+      }
+    }, 8000);
+
     return () => {
       unsubConn();
+      unsubJoined();
       unsubQOpen();
       unsubReveal();
       unsubLeaderboard();
+      unsubSubmission();
       unsubPause();
       unsubResume();
       unsubCompleted();
       unsubReset();
       unsubTelemetry();
       unsubRevoked();
+      clearInterval(pollInterval);
     };
   }, []);
 

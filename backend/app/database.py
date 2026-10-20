@@ -19,6 +19,16 @@ class InMemoryCollection:
 
     def _matches(self, doc, query):
         for k, v in query.items():
+            # Support $or operator: {"$or": [{...}, {...}]}
+            if k == "$or" and isinstance(v, list):
+                if not any(self._matches(doc, sub_query) for sub_query in v):
+                    return False
+                continue
+            # Support $and operator: {"$and": [{...}, {...}]}
+            if k == "$and" and isinstance(v, list):
+                if not all(self._matches(doc, sub_query) for sub_query in v):
+                    return False
+                continue
             if isinstance(v, dict):
                 if "$in" in v and doc.get(k) not in v["$in"]:
                     return False

@@ -39,6 +39,7 @@ class SocketService {
       'question_open',
       'answer_received',
       'submission_update',
+      'submission_status',
       'question_reveal',
       'leaderboard_update',
       'quiz_paused',
@@ -48,7 +49,8 @@ class SocketService {
       'session_revoked',
       'telemetry_update',
       'joined_success',
-      'auth_error'
+      'auth_error',
+      'heartbeat_ack'
     ];
 
     eventNames.forEach(evt => {

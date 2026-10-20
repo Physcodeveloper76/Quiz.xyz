@@ -3,8 +3,9 @@ import TimerBar from '../components/TimerBar';
 import QuestionCard from '../components/QuestionCard';
 import Leaderboard from '../components/Leaderboard';
 import { socketService } from '../services/socket';
+import { api } from '../services/api';
 import { sounds } from '../services/AudioCues';
-import { Award, Pause, Sparkles } from 'lucide-react';
+import { Award, Pause, Sparkles, Loader } from 'lucide-react';
 
 export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
   const [selectedOption, setSelectedOption] = useState(null);
@@ -80,6 +81,24 @@ export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
     );
   }
 
+  // If quiz is active but question data hasn't arrived yet, show loading state
+  if (!currentQ && (status === 'QUESTION_OPEN' || status === 'REVEAL')) {
+    return (
+      <div style={{ maxWidth: '850px', margin: '60px auto', padding: '0 20px', textAlign: 'center' }}>
+        <div className="glass-panel animate-slide-up" style={{ padding: '48px 32px' }}>
+          <Loader size={40} color="#6366F1" style={{ animation: 'spin 1s linear infinite', marginBottom: '20px' }} />
+          <h2 className="font-display" style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: '8px' }}>
+            Loading Question...
+          </h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+            Syncing with quiz server. This should only take a moment.
+          </p>
+        </div>
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: '850px', margin: '20px auto', padding: '0 20px' }}>
       {/* Paused Banner */}
@@ -103,7 +122,7 @@ export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
       )}
 
       {/* Countdown Timer */}
-      {!isRevealed && status === 'QUESTION_OPEN' && (
+      {!isRevealed && status === 'QUESTION_OPEN' && currentQ && (
         <TimerBar
           deadlineAt={quizState?.deadline_at}
           durationSeconds={quizState?.duration_seconds}
@@ -112,15 +131,17 @@ export default function LiveQuiz({ quizState, team, onAnswerSubmitted }) {
       )}
 
       {/* Main Question Arena */}
-      <QuestionCard
-        question={currentQ}
-        selectedOption={selectedOption}
-        isLocked={isLocked}
-        isRevealed={isRevealed}
-        correctOption={currentQ?.correct_option}
-        pointsEarned={pointsEarned}
-        onSelectOption={handleSelectOption}
-      />
+      {currentQ && (
+        <QuestionCard
+          question={currentQ}
+          selectedOption={selectedOption}
+          isLocked={isLocked}
+          isRevealed={isRevealed}
+          correctOption={currentQ?.correct_option}
+          pointsEarned={pointsEarned}
+          onSelectOption={handleSelectOption}
+        />
+      )}
     </div>
   );
 }
